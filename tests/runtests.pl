@@ -69,6 +69,8 @@ BEGIN {
 use strict;
 use warnings;
 use Cwd;
+use File::Spec;
+use IO::Select;
 
 # Subs imported from serverhelp module
 use serverhelp qw(
@@ -502,45 +504,143 @@ sub checktestcmd {
 #######################################################################
 # Run the application under test and return its return code
 #
+# A hash is expected as parameter. Keys:
+# - cmd is a reference to an array.
+# - stdin is an optional filename.
+# - stdout and stderr are either strings (a filename or '&1' for stdout) or
+#   a reference to store the output. Note: stdout is always redirected before
+#   stderr.
+#
 sub runclient {
-    my ($cmd)=@_;
-    my $ret = system($cmd);
-    print "CMD ($ret): $cmd\n" if($verbose && !$torture);
-    return $ret;
+    my %args = @_;
+    # To test curl on a remote machine, replace the command by
+    # 'ssh $CLIENTIP "cd $PWD && $cmd', but note shell escaping and take care of
+    # env vars. Then sleep(2) to allow the NFS server to be updated.
+    my $sel = IO::Select->new();
 
-# This is one way to test curl on a remote machine
-#    my $out = system("ssh $CLIENTIP cd \'$pwd\' \\; \'$cmd\'");
-#    sleep 2;    # time to allow the NFS server to be updated
-#    return $out;
+    my (%pipes_rd, %pipes_wr);
+    for my $key ('stdout', 'stderr') {
+        next if not ($args{$key} and ref($args{$key}));
+        if (not pipe($pipes_rd{$key}, $pipes_wr{$key})) {
+            print "pipe failed with $!\n" if($verbose && !$torture);
+            close($_) for (values(%pipes_rd), values(%pipes_wr));
+            return -1;
+        }
+        ${$args{$key}} = ''; # Clear the output reference
+        $sel->add($pipes_rd{$key});
+    }
+
+    my $pid = fork();
+    if (!defined($pid)) {
+        print "fork failed with $!\n" if($verbose && !$torture);
+        close($_) for (values(%pipes_rd), values(%pipes_wr));
+        return -1;
+    }
+    if ($pid == 0) { # Child
+        close($_) for (values %pipes_rd);
+        open(STDIN, '<', $args{stdin}) if $args{stdin};
+        # Redirect stderr and stdout as needed
+        my %outputs = ( 'stdout' => *STDOUT, 'stderr' => *STDERR );
+        while (my ($key, $handle) = each %outputs) {
+            if ($pipes_wr{$key}) {
+                open($handle, '>&', $pipes_wr{$key});
+            } elsif (my $dest = $args{$key}) {
+                if ($dest =~ /^&/) {
+                    open($handle, ">$dest");
+                } else {
+                    # File name (do not treat "-" specially!)
+                    open($handle, '>', $dest);
+                }
+            }
+        }
+
+        # Try to invoke the command or exit
+        exec(@{$args{cmd}}) or exit(127);
+    }
+
+    # Parent
+    close($_) for (values %pipes_wr);
+    while (my @fhs = $sel->can_read) {
+        for my $fh (@fhs) {
+            my $key = ($pipes_rd{stderr} and $fh == $pipes_rd{stderr})
+                    ? 'stderr' : 'stdout';
+            my $bytes = sysread($fh, my $buf, 4096);
+            ${$args{$key}} .= $buf;
+            $sel->remove($fh) if $bytes == 0; # EOF
+        }
+    }
+    close($_) for (values %pipes_rd);
+
+    waitpid($pid, 0);
+    my $ret = $?;
+    print "CMD ($ret): " . cmd_tostring(%args) . "\n" if($verbose && !$torture);
+    return $ret;
 }
 
 #######################################################################
-# Run the application under test and return its stdout
+# Converts the options (that can be passed to runclient) to a string.
 #
-sub runclientoutput {
-    my ($cmd)=@_;
-    return `$cmd`;
+sub cmd_tostring {
+    my %args = @_;
+    my @cmd;
+    push @cmd, "'" . s/'/'\\''/gr . "'" for (@{$args{cmd}});
+    # when given, stdin can only be a filename.
+    push @cmd, "<$args{stdin}" if $args{stdin};
+    # Print redir op only if redirection is redirected which is a filename (and
+    # not a reference to an output variable).
+    push @cmd,  ">$args{stdout}" if ($args{stdout} and !ref($args{stdout}));
+    push @cmd, "2>$args{stderr}" if ($args{stderr} and !ref($args{stderr}));
+    return "@cmd";
+}
 
-# This is one way to test curl on a remote machine
-#    my @out = `ssh $CLIENTIP cd \'$pwd\' \\; \'$cmd\'`;
-#    sleep 2;    # time to allow the NFS server to be updated
-#    return @out;
- }
+# Splits a shell command into an array that can be passed to exec.
+sub splitcmd {
+    my $cmdline = shift;
+    my @args;
+    my $arg;
+    # Match all arguments, removing quotes/backslashes as needed.
+    # Text::ParseWords is broken in this regards as it converts "\{\}\n" to
+    # "{}n" instead of keeping the backslashes here.
+    while ($cmdline =~ /
+        # Double quote
+        (")((?:[^\\"]+|\\.)*)"|
+        # Single quotes
+        (')([^']*)'|
+        # Whitespace
+        ([ \t]+)|
+        # Unquoted
+        ([^'"\\ \t]+|\\.)
+        /xsg) {
+        if (defined($1)) {      # Double quotes
+            # IEEE Std 1003.1 2004: only touch $ ` " \ <newline>
+            $arg .= $+ =~ s/\\([\$\`"\\\n])/$1/gr;
+        } elsif (defined($3)) { # Single quotes
+            $arg .= $+;
+        } elsif (defined($5)) { # Whitespace
+            push @args, $arg if defined($arg);
+            $arg = undef;
+        } else {                # Unquoted
+            $arg .= $+ =~ s/\\(.)/$1/gr;
+        }
+    }
+    push @args, $arg if defined($arg);
+    return @args;
+}
 
 #######################################################################
 # Memory allocation test and failure torture testing.
 #
 sub torture {
-    my $testcmd = shift;
-    my $gdbline = shift;
+    my %testcmd = %{shift()};
+    my %gdbline = %{shift()};
 
     # remove memdump first to be sure we get a new nice and clean one
     unlink($memdump);
 
     # First get URL from test server, ignore the output/result
-    runclient($testcmd);
+    runclient(%testcmd);
 
-    logmsg " CMD: $testcmd\n" if($verbose);
+    logmsg " CMD: " . cmd_tostring(%testcmd) . "\n" if($verbose);
 
     # memanalyze -v is our friend, get the number of allocations made
     my $count=0;
@@ -584,10 +684,10 @@ sub torture {
 
         my $ret = 0;
         if($gdbthis) {
-            runclient($gdbline)
+            runclient(%gdbline)
         }
         else {
-            $ret = runclient($testcmd);
+            $ret = runclient(%testcmd);
         }
         #logmsg "$_ Returned " . ($ret >> 8) . "\n";
 
@@ -723,20 +823,24 @@ sub verifyhttp {
         $bonus="1/";
     }
 
-    my $flags = "--max-time $server_response_maxtime ";
-    $flags .= "--output $verifyout ";
-    $flags .= "--silent ";
-    $flags .= "--verbose ";
-    $flags .= "--globoff ";
-    $flags .= "-1 "         if($has_axtls);
-    $flags .= "--insecure " if($proto eq 'https');
-    $flags .= "\"$proto://$ip:$port/${bonus}verifiedserver\"";
-
-    my $cmd = "$VCURL $flags 2>$verifylog";
+    my %cmd = (
+        cmd     => [
+            $VCURL,
+            "--max-time", $server_response_maxtime,
+            "--output", $verifyout,
+            "--silent",
+            "--verbose",
+            "--globoff",
+            $has_axtls ? "-1" : (),
+            $proto eq 'https' ?  "--insecure" : (),
+            "$proto://$ip:$port/${bonus}verifiedserver",
+        ],
+        stderr  => $verifylog,
+    );
 
     # verify if our/any server is running on this port
-    logmsg "RUN: $cmd\n" if($verbose);
-    my $res = runclient($cmd);
+    logmsg "RUN: " . cmd_tostring(%cmd) . "\n" if($verbose);
+    my $res = runclient(%cmd);
 
     $res >>= 8; # rotate the result
     if($res & 128) {
@@ -789,43 +893,41 @@ sub verifyftp {
     my $server = servername_id($proto, $ipvnum, $idnum);
     my $pid = 0;
     my $time=time();
-    my $extra="";
 
     my $verifylog = "$LOGDIR/".
         servername_canon($proto, $ipvnum, $idnum) .'_verify.log';
     unlink($verifylog) if(-f $verifylog);
 
-    if($proto eq "ftps") {
-        $extra .= "--insecure --ftp-ssl-control ";
-    }
-
-    my $flags = "--max-time $server_response_maxtime ";
-    $flags .= "--silent ";
-    $flags .= "--verbose ";
-    $flags .= "--globoff ";
-    $flags .= $extra;
-    $flags .= "\"$proto://$ip:$port/verifiedserver\"";
-
-    my $cmd = "$VCURL $flags 2>$verifylog";
+    my $data = '';
+    my %cmd = (
+        cmd     => [
+            $VCURL,
+            "--max-time", $server_response_maxtime,
+            "--silent",
+            "--verbose",
+            "--globoff",
+            $proto eq "ftps" ? ("--insecure", "--ftp-ssl-control") : (),
+            "$proto://$ip:$port/verifiedserver",
+        ],
+        stderr  => $verifylog,
+        stdout  => \$data,
+    );
 
     # check if this is our server running on this port:
-    logmsg "RUN: $cmd\n" if($verbose);
-    my @data = runclientoutput($cmd);
+    logmsg "RUN: " . cmd_tostring(%cmd) . "\n" if($verbose);
+    my $res = runclient(%cmd);
 
-    my $res = $? >> 8; # rotate the result
+    $res >>= 8; # rotate the result
     if($res & 128) {
         logmsg "RUN: curl command died with a coredump\n";
         return -1;
     }
 
-    foreach my $line (@data) {
-        if($line =~ /WE ROOLZ: (\d+)/) {
-            # this is our test server with a known pid!
-            $pid = 0+$1;
-            last;
-        }
+    if($data =~ /WE ROOLZ: (\d+)/) {
+        # this is our test server with a known pid!
+        $pid = 0+$1;
     }
-    if($pid <= 0 && @data && $data[0]) {
+    if($pid <= 0 && $data) {
         # this is not a known server
         logmsg "RUN: Unknown server on our $server port: $port\n";
         return 0;
@@ -861,19 +963,23 @@ sub verifyrtsp {
         servername_canon($proto, $ipvnum, $idnum) .'_verify.log';
     unlink($verifylog) if(-f $verifylog);
 
-    my $flags = "--max-time $server_response_maxtime ";
-    $flags .= "--output $verifyout ";
-    $flags .= "--silent ";
-    $flags .= "--verbose ";
-    $flags .= "--globoff ";
-    # currently verification is done using http
-    $flags .= "\"http://$ip:$port/verifiedserver\"";
-
-    my $cmd = "$VCURL $flags 2>$verifylog";
+    my %cmd = (
+        cmd     => [
+            $VCURL,
+            "--max-time", $server_response_maxtime,
+            "--output", $verifyout,
+            "--silent",
+            "--verbose",
+            "--globoff",
+            # currently verification is done using http
+            "http://$ip:$port/verifiedserver",
+        ],
+        stderr  => $verifylog,
+    );
 
     # verify if our/any server is running on this port
-    logmsg "RUN: $cmd\n" if($verbose);
-    my $res = runclient($cmd);
+    logmsg "RUN: " . cmd_tostring(%cmd) . "\n" if($verbose);
+    my $res = runclient(%cmd);
 
     $res >>= 8; # rotate the result
     if($res & 128) {
@@ -964,8 +1070,18 @@ sub verifysftp {
     }
     # Connect to sftp server, authenticate and run a remote pwd
     # command using our generated configuration and key files
-    my $cmd = "$sftp -b $sftpcmds -F $sftpconfig -S $ssh $ip > $sftplog 2>&1";
-    my $res = runclient($cmd);
+    my @cmd = (
+        $sftp,
+        "-b", $sftpcmds,
+        "-F", $sftpconfig,
+        "-S", $ssh,
+        $ip,
+    );
+    my $res = runclient(
+        cmd     => \@cmd,
+        stdout  => $sftplog,
+        stderr  => '&1',
+    );
     # Search for pwd command response in log file
     if(open(SFTPLOGFILE, "<$sftplog")) {
         while(<SFTPLOGFILE>) {
@@ -999,21 +1115,25 @@ sub verifyhttptls {
         servername_canon($proto, $ipvnum, $idnum) .'_verify.log';
     unlink($verifylog) if(-f $verifylog);
 
-    my $flags = "--max-time $server_response_maxtime ";
-    $flags .= "--output $verifyout ";
-    $flags .= "--verbose ";
-    $flags .= "--globoff ";
-    $flags .= "--insecure ";
-    $flags .= "--tlsauthtype SRP ";
-    $flags .= "--tlsuser jsmith ";
-    $flags .= "--tlspassword abc ";
-    $flags .= "\"https://$ip:$port/verifiedserver\"";
-
-    my $cmd = "$VCURL $flags 2>$verifylog";
+    my %cmd = (
+        cmd     => [
+            $VCURL,
+            "--max-time", $server_response_maxtime,
+            "--output", $verifyout,
+            "--verbose",
+            "--globoff",
+            "--insecure",
+            "--tlsauthtype", "SRP",
+            "--tlsuser", "jsmith",
+            "--tlspassword", "abc",
+            "https://$ip:$port/verifiedserver",
+        ],
+        stderr  => $verifylog,
+    );
 
     # verify if our/any server is running on this port
-    logmsg "RUN: $cmd\n" if($verbose);
-    my $res = runclient($cmd);
+    logmsg "RUN: " . cmd_tostring(%cmd) . "\n" if($verbose);
+    my $res = runclient(%cmd);
 
     $res >>= 8; # rotate the result
     if($res & 128) {
@@ -2253,12 +2373,19 @@ sub checksystem {
 
     my $curlverout="$LOGDIR/curlverout.log";
     my $curlvererr="$LOGDIR/curlvererr.log";
-    my $versioncmd="$CURL --version 1>$curlverout 2>$curlvererr";
+    my %versioncmd = (
+        cmd     => [
+            $CURL,
+            "--version",
+        ],
+        stdout  => $curlverout,
+        stderr  => $curlvererr,
+    );
 
     unlink($curlverout);
     unlink($curlvererr);
 
-    $versretval = runclient($versioncmd);
+    $versretval = runclient(%versioncmd);
     $versnoexec = $!;
 
     open(VERSOUT, "<$curlverout");
@@ -2439,7 +2566,7 @@ sub checksystem {
     if(!$curl) {
         logmsg "unable to get curl's version, further details are:\n";
         logmsg "issued command: \n";
-        logmsg "$versioncmd \n";
+        logmsg cmd_tostring(%versioncmd) . "\n";
         if ($versretval == -1) {
             logmsg "command failed with: \n";
             logmsg "$versnoexec \n";
@@ -2495,8 +2622,15 @@ sub checksystem {
     $has_shared = `sh $CURLCONFIG --built-shared`;
     chomp $has_shared;
 
-    my $hostname=join(' ', runclientoutput("hostname"));
-    my $hosttype=join(' ', runclientoutput("uname -a"));
+    my $hostname = my $hosttype = '';
+    runclient(
+        cmd     => ['hostname'],
+        stdout  => \$hostname,
+    );
+    runclient(
+        cmd     => ['uname', '-a'],
+        stdout  => \$hosttype,
+    );
 
     logmsg ("********* System characteristics ******** \n",
     "* $curl\n",
@@ -3088,7 +3222,7 @@ sub singletest {
             chomp $cmd;
             subVariables \$cmd;
             if($cmd) {
-                my @p = split(/ /, $cmd);
+                my @p = splitcmd("$cmd");
                 if($p[0] !~ /\//) {
                     # the first word, the command, does not contain a slash so
                     # we will scan the "improved" PATH to find the command to
@@ -3098,17 +3232,21 @@ sub singletest {
                     if($fullp) {
                         $p[0] = $fullp;
                     }
-                    $cmd = join(" ", @p);
                 }
 
-                my @o = `$cmd 2>/dev/null`;
-                if($o[0]) {
-                    $why = $o[0];
-                    chomp $why;
-                } elsif($?) {
+                my $out = "";
+                my %cmd = (
+                    cmd     => \@p,
+                    stderr  => File::Spec->devnull,
+                    stdout  => \$out,
+                );
+                my $rc = runclient(%cmd);
+                $why = (split(/\n/, $out))[0];
+                # Any output is assumed to be an error
+                if (!$why && $rc != 0) {
                     $why = "precheck command error";
                 }
-                logmsg "prechecked $cmd\n" if($verbose);
+                logmsg "prechecked " . cmd_tostring(%cmd) . "\n" if($verbose);
             }
         }
     }
@@ -3267,6 +3405,10 @@ sub singletest {
         }
     }
 
+    my %test_command = (
+        stdout  => $STDOUT,
+        stderr  => $STDERR,
+    );
     my $CMDLINE;
     my $cmdargs;
     my $cmdtype = $cmdhash{'type'} || "default";
@@ -3347,7 +3489,7 @@ sub singletest {
 
         writearray($stdinfile, \@stdintest);
 
-        $cmdargs .= " <$stdinfile";
+        $test_command{stdin} = $stdinfile;
     }
 
     if(!$tool) {
@@ -3370,13 +3512,17 @@ sub singletest {
         }
     }
 
-    $CMDLINE .= "$cmdargs >$STDOUT 2>$STDERR";
+    $CMDLINE .= "$cmdargs";
+
+    # TODO: get rid of $CMDLINE and consider using gdb --args ...
+    my @commandline_split = splitcmd("$CMDLINE");
+    $test_command{cmd} = \@commandline_split;
 
     if($verbose) {
-        logmsg "$CMDLINE\n";
+        logmsg cmd_tostring(%test_command) . "\n";
     }
 
-    print CMDLOG "$CMDLINE\n";
+    print CMDLOG cmd_tostring(%test_command) . "\n";
 
     unlink("core");
 
@@ -3401,7 +3547,15 @@ sub singletest {
     if($gdbthis) {
         my $gdbinit = "$TESTDIR/gdbinit$testnum";
         open(GDBCMD, ">$LOGDIR/gdbcmd");
-        print GDBCMD "set args $cmdargs\n";
+        if (my $stdinfile = $test_command{stdin}) {
+            # Unfortunately this command needs stdin. Might break tests 906,
+            # 921, 936 which use both LD_PRELOAD and stdin.
+            print GDBCMD "set args $cmdargs <$stdinfile\n";
+        } else {
+            print GDBCMD "set args $cmdargs\n";
+            # Do not invoke using a shell as LD_PRELOAD may crash it.
+            print GDBCMD "set startup-with-shell off\n";
+        }
         print GDBCMD "show args\n";
         print GDBCMD "source $gdbinit\n" if -e $gdbinit;
         close(GDBCMD);
@@ -3412,16 +3566,31 @@ sub singletest {
 
     # run the command line we built
     if ($torture) {
-        $cmdres = torture($CMDLINE,
-                       "$gdb --directory libtest $DBGCURL -x $LOGDIR/gdbcmd");
+        my %gdb_command = (
+            cmd => [
+               $gdb,
+               "--directory", "libtest",
+               $DBGCURL,
+               "-x", "$LOGDIR/gdbcmd"
+            ],
+        );
+        $cmdres = torture(\%test_command, \%gdb_command);
     }
     elsif($gdbthis) {
         my $GDBW = ($gdbxwin) ? "-w" : "";
-        runclient("$gdb --directory libtest $DBGCURL $GDBW -x $LOGDIR/gdbcmd");
+        runclient(
+            cmd => [
+                $gdb,
+                "--directory", "libtest",
+                $DBGCURL,
+                $GDBW,
+                "-x", "$LOGDIR/gdbcmd",
+            ]
+        );
         $cmdres=0; # makes it always continue after a debugged run
     }
     else {
-        $cmdres = runclient("$CMDLINE");
+        $cmdres = runclient(%test_command);
         my $signal_num  = $cmdres & 127;
         $dumped_core = $cmdres & 128;
 
@@ -3451,7 +3620,16 @@ sub singletest {
             open(GDBCMD, ">$LOGDIR/gdbcmd2");
             print GDBCMD "bt\n";
             close(GDBCMD);
-            runclient("$gdb --directory libtest -x $LOGDIR/gdbcmd2 -batch $DBGCURL core ");
+            runclient(
+                cmd => [
+                    $gdb,
+                    "--directory", "libtest",
+                    "-x", "$LOGDIR/gdbcmd2",
+                    "-batch",
+                    $DBGCURL,
+                    "core",
+                ]
+            );
      #       unlink("$LOGDIR/gdbcmd2");
         }
     }
@@ -3564,7 +3742,10 @@ sub singletest {
         subVariables \$cmd;
         if($cmd) {
             logmsg "postcheck $cmd\n" if($verbose);
-            my $rc = runclient("$cmd");
+            my @cmda = splitcmd("$cmd");
+            my $rc = runclient(
+                cmd => \@cmda,
+            );
             # Must run the postcheck command in torture mode in order
             # to clean up, but the result can't be relied upon.
             if($rc != 0 && !$torture) {
@@ -4750,7 +4931,11 @@ if($valgrind) {
     # we have found valgrind on the host, use it
 
     # verify that we can invoke it fine
-    my $code = runclient("valgrind >/dev/null 2>&1");
+    my $code = runclient(
+        cmd     => ['valgrind'],
+        stdout  => File::Spec->devnull,
+        stderr  => '2>&1',
+    );
 
     if(($code>>8) != 1) {
         #logmsg "Valgrind failure, disable it\n";
@@ -4759,8 +4944,13 @@ if($valgrind) {
 
         # since valgrind 2.1.x, '--tool' option is mandatory
         # use it, if it is supported by the version installed on the system
-        runclient("valgrind --help 2>&1 | grep -- --tool > /dev/null 2>&1");
-        if (($? >> 8)==0) {
+        my $help_output = '';
+        runclient(
+            cmd     => ['valgrind', '--help'],
+            stdout  => \$help_output,
+            stderr  => '2>&1',
+        );
+        if ($help_output =~ /--tool/) {
             $valgrind_tool="--tool=memcheck";
         }
         open(C, "<$CURL");
@@ -4772,15 +4962,8 @@ if($valgrind) {
         close(C);
 
         # valgrind 3 renamed the --logfile option to --log-file!!!
-        my $ver=join(' ', runclientoutput("valgrind --version"));
-        # cut off all but digits and dots
-        $ver =~ s/[^0-9.]//g;
-
-        if($ver =~ /^(\d+)/) {
-            $ver = $1;
-            if($ver >= 3) {
-                $valgrind_logfile="--log-file";
-            }
+        if ($help_output =~ /--log-file/) {
+            $valgrind_logfile = "--log-file";
         }
     }
 }
