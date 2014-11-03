@@ -1065,7 +1065,7 @@ AC_HELP_STRING([--disable-ipv6],[Disable ipv6 support]),
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <stdlib.h> /* for exit() */
-main()
+int main(void)
 {
  if (socket(AF_INET6, SOCK_STREAM, 0) < 0)
    exit(1);
@@ -1091,7 +1091,7 @@ if test "$ipv6" = yes; then
   AC_TRY_COMPILE([
 #include <sys/types.h>
 #include <netinet/in.h>] ,
-  struct sockaddr_in6 s; s.sin6_scope_id = 0; , have_sin6_scope_id=yes)
+  struct sockaddr_in6 s; s.sin6_scope_id = 0; (void)s; , have_sin6_scope_id=yes)
   if test "$have_sin6_scope_id" = yes; then
     AC_MSG_RESULT([yes])
     AC_DEFINE(HAVE_SOCKADDR_IN6_SIN6_SCOPE_ID, 1, [Define to 1 if struct sockaddr_in6 has the sin6_scope_id member])
@@ -1583,6 +1583,7 @@ if test "$curl_ssl_msg" = "$init_ssl_msg" && test X"$OPT_SSL" != Xno; then
       ]],[[
 #if defined(YASSL_VERSION) && defined(OPENSSL_VERSION_NUMBER)
         int dummy = SSL_ERROR_NONE;
+        (void)dummy;
 #else
         Not the yaSSL OpenSSL compatibility header.
 #endif
@@ -2901,6 +2902,7 @@ if test "xyes" = "x$longlong"; then
     AC_LANG_PROGRAM([[
     ]],[[
       long long val = 1000LL;
+      (void)val;
     ]])
   ],[
     AC_MSG_RESULT([yes])

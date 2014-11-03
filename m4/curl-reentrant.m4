@@ -5,7 +5,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2009, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2014, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -55,6 +55,7 @@ AC_DEFUN([CURL_CHECK_NEED_REENTRANT_ERRNO], [
       ]],[[
 #ifdef errno
         int dummy=1;
+        (void)dummy;
 #else
         force compilation error
 #endif
@@ -69,6 +70,7 @@ AC_DEFUN([CURL_CHECK_NEED_REENTRANT_ERRNO], [
         ]],[[
 #ifdef errno
           int dummy=1;
+          (void)dummy;
 #else
           force compilation error
 #endif
@@ -522,6 +524,7 @@ AC_DEFUN([CURL_CONFIGURE_REENTRANT], [
     ]],[[
 #ifdef _REENTRANT
       int dummy=1;
+      (void)dummy;
 #else
       force compilation error
 #endif
@@ -582,6 +585,7 @@ AC_DEFUN([CURL_CONFIGURE_THREAD_SAFE], [
     ]],[[
 #ifdef _THREAD_SAFE
       int dummy=1;
+      (void)dummy;
 #else
       force compilation error
 #endif

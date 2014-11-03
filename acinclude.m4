@@ -5,7 +5,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2013, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2014, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -183,6 +183,7 @@ AC_DEFUN([CURL_CHECK_HEADER_WINDOWS], [
         HAVE_WINDOWS_H shall not be defined.
 #else
         int dummy=2*WINVER;
+        (void)dummy;
 #endif
       ]])
     ],[
@@ -218,6 +219,7 @@ AC_DEFUN([CURL_CHECK_NATIVE_WINDOWS], [
 #if defined(__MINGW32__) || defined(__MINGW32CE__) || \
    (defined(_MSC_VER) && (defined(_WIN32) || defined(_WIN64)))
           int dummy=1;
+          (void)dummy;
 #else
           Not a native Windows build target.
 #endif
@@ -253,6 +255,7 @@ AC_DEFUN([CURL_CHECK_HEADER_WINSOCK], [
         HAVE_WINSOCK_H shall not be defined.
 #else
         int dummy=WSACleanup();
+        (void)dummy;
 #endif
       ]])
     ],[
@@ -290,6 +293,7 @@ AC_DEFUN([CURL_CHECK_HEADER_WINSOCK2], [
         HAVE_WINSOCK2_H shall not be defined.
 #else
         int dummy=2*IPPROTO_ESP;
+        (void)dummy;
 #endif
       ]])
     ],[
@@ -328,6 +332,7 @@ AC_DEFUN([CURL_CHECK_HEADER_WS2TCPIP], [
         HAVE_WS2TCPIP_H shall not be defined.
 #else
         int dummy=2*IP_PKTINFO;
+        (void)dummy;
 #endif
       ]])
     ],[
@@ -368,6 +373,7 @@ AC_DEFUN([CURL_CHECK_HEADER_WINLDAP], [
 #else
         LDAP *ldp = ldap_init("dummy", LDAP_PORT);
         ULONG res = ldap_unbind(ldp);
+        (void)res;
 #endif
       ]])
     ],[
@@ -538,6 +544,7 @@ AC_DEFUN([CURL_CHECK_HEADER_LDAP], [
       ]],[[
         LDAP *ldp = ldap_init("dummy", LDAP_PORT);
         int res = ldap_unbind(ldp);
+        (void)res;
       ]])
     ],[
       ac_cv_header_ldap_h="yes"
@@ -586,6 +593,7 @@ AC_DEFUN([CURL_CHECK_HEADER_LDAP_SSL], [
 #include <ldap_ssl.h>
       ]],[[
         LDAP *ldp = ldapssl_init("dummy", LDAPS_PORT, 1);
+        (void)ldp;
       ]])
     ],[
       ac_cv_header_ldap_ssl_h="yes"
@@ -638,6 +646,7 @@ AC_DEFUN([CURL_CHECK_HEADER_LDAPSSL], [
       ]],[[
         char *cert_label = NULL;
         LDAP *ldp = ldap_ssl_init("dummy", LDAPS_PORT, cert_label);
+        (void)ldp;
       ]])
     ],[
       ac_cv_header_ldapssl_h="yes"
@@ -719,6 +728,7 @@ AC_DEFUN([CURL_CHECK_LIBS_WINLDAP], [
           LDAP *ldp = ldap_init("dummy", LDAP_PORT);
           ULONG res = ldap_unbind(ldp);
           ber_free(bep, 1);
+          (void)res;
         ]])
       ],[
         curl_cv_ldap_LIBS="$x_nlibs"
@@ -827,6 +837,7 @@ AC_DEFUN([CURL_CHECK_LIBS_LDAP], [
           LDAP *ldp = ldap_init("dummy", LDAP_PORT);
           int res = ldap_unbind(ldp);
           ber_free(bep, 1);
+          (void)res;
         ]])
       ],[
         curl_cv_ldap_LIBS="$x_nlibs"
@@ -1090,6 +1101,7 @@ AC_DEFUN([CURL_CHECK_FUNC_GETNAMEINFO], [
                     $gni_arg46 servlen=0;
                     $gni_arg7 flags=0;
                     int res = getnameinfo(0, salen, 0, hostlen, 0, servlen, flags);
+                    (void)res;
                   ]])
                 ],[
                   curl_cv_func_getnameinfo_args="$gni_arg1,$gni_arg2,$gni_arg46,$gni_arg7"
@@ -1281,6 +1293,7 @@ AC_DEFUN([CURL_CHECK_NI_WITHSCOPEID], [
 #include <netdb.h>
         ]],[[
           unsigned int dummy= NI_NUMERICHOST | NI_NUMERICSERV | NI_WITHSCOPEID;
+          (void)dummy;
         ]])
       ],[
         ac_cv_working_ni_withscopeid="yes"
@@ -1391,6 +1404,7 @@ AC_DEFUN([CURL_CHECK_FUNC_RECV], [
                       $recv_arg3 len=0;
                       $recv_arg4 flags=0;
                       $recv_retv res = recv(s, buf, len, flags);
+                      (void)res;
                     ]])
                   ],[
                     curl_cv_func_recv_args="$recv_arg1,$recv_arg2,$recv_arg3,$recv_arg4,$recv_retv"
@@ -1524,6 +1538,7 @@ AC_DEFUN([CURL_CHECK_FUNC_SEND], [
                       $send_arg3 len=0;
                       $send_arg4 flags=0;
                       $send_retv res = send(s, 0, len, flags);
+                      (void)res;
                     ]])
                   ],[
                     curl_cv_func_send_args="$send_arg1,$send_arg2,$send_arg3,$send_arg4,$send_retv"
@@ -1629,6 +1644,7 @@ AC_DEFUN([CURL_CHECK_MSG_NOSIGNAL], [
 #endif
       ]],[[
         int flag=MSG_NOSIGNAL;
+        (void)flag;
       ]])
     ],[
       ac_cv_msg_nosignal="yes"
@@ -1691,6 +1707,7 @@ AC_DEFUN([CURL_CHECK_STRUCT_TIMEVAL], [
         struct timeval ts;
         ts.tv_sec  = 0;
         ts.tv_usec = 0;
+        (void)ts;
       ]])
     ],[
       ac_cv_struct_timeval="yes"
@@ -1733,6 +1750,7 @@ AC_DEFUN([TYPE_SIG_ATOMIC_T], [
 #endif
         ]],[[
           static volatile sig_atomic_t dummy = 0;
+          (void)dummy;
         ]])
       ],[
         AC_MSG_RESULT([no])
@@ -1795,6 +1813,7 @@ AC_DEFUN([TYPE_IN_ADDR_T], [
 #endif
             ]],[[
               $t data = inet_addr ("1.2.3.4");
+              (void)data;
             ]])
           ],[
             curl_cv_in_addr_t_equiv="$t"
@@ -2137,6 +2156,7 @@ AC_DEFUN([CURL_CONFIGURE_CURL_SOCKLEN_T], [
           typedef $t curl_socklen_t;
         ]],[[
           curl_socklen_t dummy;
+          (void)dummy;
         ]])
       ],[
         curl_typeof_curl_socklen_t="$t"
@@ -2183,6 +2203,7 @@ AC_DEFUN([CURL_CONFIGURE_CURL_SOCKLEN_T], [
             typedef char dummy_arr[sizeof(curl_socklen_t) == $tst_size ? 1 : -1];
           ]],[[
             curl_socklen_t dummy;
+            (void)dummy;
           ]])
         ],[
           curl_sizeof_curl_socklen_t="$tst_size"
@@ -2382,6 +2403,7 @@ AC_DEFUN([CURL_CHECK_FUNC_SELECT], [
                     $sel_arg234 wfds=0;
                     $sel_arg234 efds=0;
                     $sel_retv res = select(nfds, rfds, wfds, efds, 0);
+                    (void)res;
                   ]])
                 ],[
                   curl_cv_func_select_args="$sel_arg1,$sel_arg234,$sel_arg5,$sel_retv"
@@ -2488,7 +2510,7 @@ AC_DEFUN([CURL_VERIFY_RUNTIMELIBS], [
     dnl point also is available run-time!
     AC_MSG_CHECKING([run-time libs availability])
     AC_TRY_RUN([
-main()
+int main(void)
 {
   return 0;
 }
@@ -2523,6 +2545,8 @@ AC_DEFUN([CURL_CHECK_VARIADIC_MACROS], [
       ]],[[
         int res3 = c99_vmacro3(1, 2, 3);
         int res2 = c99_vmacro2(1, 2);
+        (void)res3;
+        (void)res2;
       ]])
     ],[
       curl_cv_variadic_macros_c99="yes"
@@ -2551,6 +2575,8 @@ AC_DEFUN([CURL_CHECK_VARIADIC_MACROS], [
       ]],[[
         int res3 = gcc_vmacro3(1, 2, 3);
         int res2 = gcc_vmacro2(1, 2);
+        (void)res3;
+        (void)res2;
       ]])
     ],[
       curl_cv_variadic_macros_gcc="yes"
@@ -2714,6 +2740,8 @@ AC_DEFUN([DO_CURL_OFF_T_CHECK], [
       ]],[[
         $tmp_source
         curl_off_t dummy;
+        (void)dummy;
+        (void)f;
       ]])
     ],[
       if test -z "$tmp_fmt"; then
@@ -2996,6 +3024,7 @@ AC_DEFUN([CURL_CHECK_WIN32_LARGEFILE], [
     (defined(__MINGW32__) || \
     (defined(_MSC_VER) && (defined(_WIN32) || defined(_WIN64))))
           int dummy=1;
+          (void)dummy;
 #else
           WIN32 large file API not supported.
 #endif
@@ -3010,6 +3039,7 @@ AC_DEFUN([CURL_CHECK_WIN32_LARGEFILE], [
         ]],[[
 #if defined(_WIN32_WCE) || defined(__MINGW32__) || defined(_MSC_VER)
           int dummy=1;
+          (void)dummy;
 #else
           WIN32 small file API not supported.
 #endif

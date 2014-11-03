@@ -5,7 +5,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2013, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2014, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -2850,7 +2850,7 @@ AC_DEFUN([CURL_CHECK_FUNC_GETHOSTNAME], [
       $curl_includes_winsock2
       $curl_includes_unistd
     ]],[[
-      if(0 != gethostname(0, 0))
+      if(0 != gethostname("x", 1))
         return 1;
     ]])
   ],[
@@ -3643,8 +3643,8 @@ AC_DEFUN([CURL_CHECK_FUNC_INET_NTOP], [
         char ipv4res[sizeof "255.255.255.255"];
         unsigned char ipv6a[26];
         unsigned char ipv4a[5];
-        char *ipv6ptr = 0;
-        char *ipv4ptr = 0;
+        const char *ipv6ptr = 0;
+        const char *ipv4ptr = 0;
         /* - */
         ipv4res[0] = '\0';
         ipv4a[0] = 0xc0;

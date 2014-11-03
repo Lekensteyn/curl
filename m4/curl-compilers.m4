@@ -5,7 +5,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 1998 - 2013, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) 1998 - 2014, Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -1277,6 +1277,7 @@ AC_DEFUN([CURL_CHECK_COMPILER_ARRAY_SIZE_NEGATIVE], [
       typedef char bad_t[sizeof(char) == sizeof(int) ? -1 : -1 ];
     ]],[[
       bad_t dummy;
+      (void)dummy;
     ]])
   ],[
     AC_MSG_RESULT([no])
@@ -1311,6 +1312,8 @@ AC_DEFUN([CURL_CHECK_COMPILER_STRUCT_MEMBER_SIZE], [
     ]],[[
       good_t1 dummy1;
       good_t2 dummy2;
+      (void)dummy1;
+      (void)dummy2;
     ]])
   ],[
     tst_compiler_check_one_works="yes"
@@ -1333,6 +1336,8 @@ AC_DEFUN([CURL_CHECK_COMPILER_STRUCT_MEMBER_SIZE], [
     ]],[[
       bad_t1 dummy1;
       bad_t2 dummy2;
+      (void)dummy1;
+      (void)dummy2;
     ]])
   ],[
     tst_compiler_check_two_works="no"
