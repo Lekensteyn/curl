@@ -267,7 +267,6 @@ my %timesrvrlog; # timestamp for each test server logs lock removal
 my %timevrfyend; # timestamp for each test result verification end
 
 my $testnumcheck; # test number, set in singletest sub.
-my %oldenv;
 
 #######################################################################
 # variables that command line options may set
@@ -510,6 +509,7 @@ sub checktestcmd {
 # - stdout and stderr are either strings (a filename or '&1' for stdout) or
 #   a reference to store the output. Note: stdout is always redirected before
 #   stderr.
+# - env is an optional hash which sets env vars for the child process.
 #
 sub runclient {
     my %args = @_;
@@ -554,6 +554,8 @@ sub runclient {
             }
         }
 
+        # Export env vars and prevent leaking vars such as LD_PRELOAD to sh.
+        local %ENV = (%ENV, %{$args{env}}) if $args{env};
         # Try to invoke the command or exit
         exec(@{$args{cmd}}) or exit(127);
     }
@@ -3156,17 +3158,6 @@ sub singletest {
     # this is done this early, so that the precheck can use environment
     # variables and still bail out fine on errors
 
-    # restore environment variables that were modified in a previous run
-    foreach my $var (keys %oldenv) {
-        if($oldenv{$var} eq 'notset') {
-            delete $ENV{$var} if($ENV{$var});
-        }
-        else {
-            $ENV{$var} = $oldenv{$var};
-        }
-        delete $oldenv{$var};
-    }
-
     # remove test server commands file before servers are started/verified
     unlink($FTPDCMD) if(-f $FTPDCMD);
 
@@ -3181,31 +3172,29 @@ sub singletest {
     $timesrvrend{$testnum} = Time::HiRes::time() if($timestats);
 
     my @setenv = getpart("client", "setenv");
+    # Environment variables for precheck, command and postcheck. Since
+    # LD_PRELOAD may not be able to load in all programs (for example, when
+    # compiling with AddressSanitizer enabled), only apply it to programs built
+    # in the source tree, and not perl, sh, etc.
+    my %env;
     if(@setenv) {
         foreach my $s (@setenv) {
             chomp $s;
             subVariables \$s;
             if($s =~ /([^=]*)=(.*)/) {
                 my ($var, $content) = ($1, $2);
-                # remember current setting, to restore it once test runs
-                $oldenv{$var} = ($ENV{$var})?"$ENV{$var}":'notset';
                 # set new value
-                if(!$content) {
-                    delete $ENV{$var} if($ENV{$var});
-                }
-                else {
-                    if($var =~ /^LD_PRELOAD/) {
-                        if(exe_ext() && (exe_ext() eq '.exe')) {
-                            # print "Skipping LD_PRELOAD due to lack of OS support\n";
-                            next;
-                        }
-                        if($debug_build || ($has_shared ne "yes")) {
-                            # print "Skipping LD_PRELOAD due to no release shared build\n";
-                            next;
-                        }
+                if($var =~ /^LD_PRELOAD/) {
+                    if(exe_ext() && (exe_ext() eq '.exe')) {
+                        # print "Skipping LD_PRELOAD due to lack of OS support\n";
+                        next;
                     }
-                    $ENV{$var} = "$content";
+                    if($debug_build || ($has_shared ne "yes")) {
+                        # print "Skipping LD_PRELOAD due to no release shared build\n";
+                        next;
+                    }
                 }
+                $env{$var} = "$content";
             }
         }
     }
@@ -3239,6 +3228,7 @@ sub singletest {
                     cmd     => \@p,
                     stderr  => File::Spec->devnull,
                     stdout  => \$out,
+                    env     => \%env,
                 );
                 my $rc = runclient(%cmd);
                 $why = (split(/\n/, $out))[0];
@@ -3408,6 +3398,7 @@ sub singletest {
     my %test_command = (
         stdout  => $STDOUT,
         stderr  => $STDERR,
+        env     => \%env,
     );
     my $CMDLINE;
     my $cmdargs;
@@ -3555,6 +3546,10 @@ sub singletest {
             print GDBCMD "set args $cmdargs\n";
             # Do not invoke using a shell as LD_PRELOAD may crash it.
             print GDBCMD "set startup-with-shell off\n";
+        }
+        keys %env;
+        while (my ($k, $v) = each %env) {
+            print GDBCMD "set environment $k = $v\n";
         }
         print GDBCMD "show args\n";
         print GDBCMD "source $gdbinit\n" if -e $gdbinit;
@@ -3745,6 +3740,7 @@ sub singletest {
             my @cmda = splitcmd("$cmd");
             my $rc = runclient(
                 cmd => \@cmda,
+                env => \%env,
             );
             # Must run the postcheck command in torture mode in order
             # to clean up, but the result can't be relied upon.
@@ -3753,18 +3749,6 @@ sub singletest {
                 # timestamp test result verification end
                 $timevrfyend{$testnum} = Time::HiRes::time() if($timestats);
                 return 1;
-            }
-        }
-    }
-
-    # restore environment variables that were modified
-    if(%oldenv) {
-        foreach my $var (keys %oldenv) {
-            if($oldenv{$var} eq 'notset') {
-                delete $ENV{$var} if($ENV{$var});
-            }
-            else {
-                $ENV{$var} = "$oldenv{$var}";
             }
         }
     }
