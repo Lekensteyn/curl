@@ -684,9 +684,9 @@ sub torture {
 
         logmsg "*** Alloc number $limit is now set to fail ***\n" if($gdbthis);
 
-        my $ret = 0;
+        my $ret;
         if($gdbthis) {
-            runclient(%gdbline)
+            $ret = runclient(%gdbline)
         }
         else {
             $ret = runclient(%testcmd);
@@ -3565,6 +3565,7 @@ sub singletest {
             cmd => [
                $gdb,
                "--directory", "libtest",
+               "-return-child-result",
                $DBGCURL,
                "-x", "$LOGDIR/gdbcmd"
             ],
@@ -3573,16 +3574,17 @@ sub singletest {
     }
     elsif($gdbthis) {
         my $GDBW = ($gdbxwin) ? "-w" : "";
-        runclient(
+        $cmdres = runclient(
             cmd => [
                 $gdb,
                 "--directory", "libtest",
+               "-return-child-result",
                 $DBGCURL,
                 $GDBW,
                 "-x", "$LOGDIR/gdbcmd",
             ]
         );
-        $cmdres=0; # makes it always continue after a debugged run
+        $cmdres >>= 8;
     }
     else {
         $cmdres = runclient(%test_command);
