@@ -186,6 +186,7 @@ static const struct LongShort aliases[]= {
   {"$W", "abstract-unix-socket",     TRUE},
   {"$X", "tls-max",                  TRUE},
   {"$Y", "suppress-connect-headers", FALSE},
+  {"$Z", "keylogfile",               TRUE},
   {"0",   "http1.0",                 FALSE},
   {"01",  "http1.1",                 FALSE},
   {"02",  "http2",                   FALSE},
@@ -1068,6 +1069,11 @@ ParameterError getparameter(char *flag,    /* f or -long-flag */
         break;
       case 'Y': /* --suppress-connect-headers */
         config->suppress_connect_headers = toggle;
+        break;
+      case 'Z': /* --keylogfile */
+        if(!(curlinfo->features & CURL_VERSION_SSL))
+          return PARAM_LIBCURL_DOESNT_SUPPORT;
+        GetStr(&config->tls_keylogfile, nextarg);
         break;
       }
       break;

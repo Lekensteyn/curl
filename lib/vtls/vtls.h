@@ -169,6 +169,9 @@ bool Curl_ssl_cert_status_request(void);
 
 bool Curl_ssl_false_start(void);
 
+/* Enable global logging of TLS secrets to this file. */
+CURLcode Curl_ssl_set_keylog_file(const char *keylog_file);
+
 #define SSL_SHUTDOWN_TIMEOUT 10000 /* ms */
 
 #else
@@ -197,6 +200,7 @@ bool Curl_ssl_false_start(void);
 #define Curl_ssl_random(x,y,z) ((void)x, CURLE_NOT_BUILT_IN)
 #define Curl_ssl_cert_status_request() FALSE
 #define Curl_ssl_false_start() FALSE
+#define Curl_ssl_set_keylog_file(x) CURLE_NOT_BUILT_IN
 #endif
 
 #endif /* HEADER_CURL_VTLS_H */

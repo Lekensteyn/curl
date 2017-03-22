@@ -124,6 +124,7 @@ static const char *const helptext[] = {
   "     --keepalive-time SECONDS  Wait SECONDS between keepalive probes",
   "     --key KEY       Private key file name (SSL/SSH)",
   "     --key-type TYPE  Private key file type (DER/PEM/ENG) (SSL)",
+  "     --keylogfile FILE  Destination file for writing TLS secrets",
   "     --krb LEVEL     Enable Kerberos with security LEVEL (F)",
 #ifndef CURL_DISABLE_LIBCURL_OPTION
   "     --libcurl FILE  Dump libcurl equivalent code of this command line",
